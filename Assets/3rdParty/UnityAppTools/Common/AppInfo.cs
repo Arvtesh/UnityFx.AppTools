@@ -13,6 +13,9 @@ namespace UnityAppTools
 	public sealed class AppInfo
 	{
 		#region data
+
+		private static AppInfo _instance;
+
 		#endregion
 
 		#region interface
@@ -57,41 +60,66 @@ namespace UnityAppTools
 		/// </summary>
 		public static Task<AppInfo> InitializeAsync()
 		{
-			var result = new AppInfo();
+			if (_instance == null)
+			{
+				var result = new AppInfo();
 
 #if UNITY_IOS && !UNITY_EDITOR
 
-			result.AdvertisingId = UnityEngine.iOS.Device.advertisingIdentifier;
-			result.IsAdvertisingTrackingEnabled = UnityEngine.iOS.Device.advertisingTrackingEnabled;
-			result.VendorId = UnityEngine.iOS.Device.vendorIdentifier;
-			result.DeviceId = GetDeviceId(result.AdvertisingId, result.VendorId);
-			result.IsFirstLaunch = GetSetFirstLaunch();
+				result.AdvertisingId = UnityEngine.iOS.Device.advertisingIdentifier;
+				result.IsAdvertisingTrackingEnabled = UnityEngine.iOS.Device.advertisingTrackingEnabled;
+				result.VendorId = UnityEngine.iOS.Device.vendorIdentifier;
+				result.DeviceId = GetDeviceId(result.AdvertisingId, result.VendorId);
+				result.IsFirstLaunch = GetSetFirstLaunch();
 
-			return Task.FromResult(result);
+				_instance = result;
+
+				return Task.FromResult(result);
 
 #else
 
-			var tcs = new TaskCompletionSource<AppInfo>();
+				var tcs = new TaskCompletionSource<AppInfo>();
 
-			if (!Application.RequestAdvertisingIdentifierAsync((advertisingId, trackingEnabled, errorMsg) =>
-			{
-				if (string.IsNullOrEmpty(errorMsg))
+				if (!Application.RequestAdvertisingIdentifierAsync((advertisingId, trackingEnabled, errorMsg) =>
 				{
-					result.AdvertisingId = advertisingId;
-					result.IsAdvertisingTrackingEnabled = trackingEnabled;
-					result.InitializeInternal(tcs);
-				}
-				else
+					if (string.IsNullOrEmpty(errorMsg))
+					{
+						result.AdvertisingId = advertisingId;
+						result.IsAdvertisingTrackingEnabled = trackingEnabled;
+
+						try
+						{
+							result.VendorId = GetVendorId();
+							result.DeviceId = GetDeviceId(advertisingId, result.VendorId);
+							result.IsFirstLaunch = GetSetFirstLaunch();
+
+							tcs.SetResult(result);
+							_instance = result;
+						}
+						catch (Exception e)
+						{
+							tcs.TrySetException(e);
+						}
+					}
+					else
+					{
+						tcs.TrySetException(new Exception(errorMsg));
+					}
+				}))
 				{
-					tcs.SetException(new Exception(errorMsg));
+					result.VendorId = GetVendorId();
+					result.DeviceId = GetDeviceId(null, result.VendorId);
+					result.IsFirstLaunch = GetSetFirstLaunch();
+
+					tcs.SetResult(result);
+					_instance = result;
 				}
-			}))
-			{
-				result.InitializeInternal(tcs);
+
+				return tcs.Task;
+#endif
 			}
 
-			return tcs.Task;
-#endif
+			return Task.FromResult(_instance);
 		}
 
 #endif
@@ -101,30 +129,35 @@ namespace UnityAppTools
 		/// </summary>
 		public static AppInfo Initialize()
 		{
-			var result = new AppInfo();
+			if (_instance == null)
+			{
+				var result = new AppInfo();
 
 #if UNITY_IOS && !UNITY_EDITOR
 
-			result.AdvertisingId = UnityEngine.iOS.Device.advertisingIdentifier;
-			result.IsAdvertisingTrackingEnabled = UnityEngine.iOS.Device.advertisingTrackingEnabled;
+				result.AdvertisingId = UnityEngine.iOS.Device.advertisingIdentifier;
+				result.IsAdvertisingTrackingEnabled = UnityEngine.iOS.Device.advertisingTrackingEnabled;
 
 #else
 
-			var advertisingId = string.Empty;
+				var advertisingId = string.Empty;
 
-			if (TryGetAdvertisingId(out advertisingId))
-			{
-				result.AdvertisingId = advertisingId;
-				result.IsAdvertisingTrackingEnabled = true;
-			}
+				if (TryGetAdvertisingId(out advertisingId))
+				{
+					result.AdvertisingId = advertisingId;
+					result.IsAdvertisingTrackingEnabled = true;
+				}
 
 #endif
 
-			result.VendorId = GetVendorId();
-			result.DeviceId = GetDeviceId(result.AdvertisingId, result.VendorId);
-			result.IsFirstLaunch = GetSetFirstLaunch();
+				result.VendorId = GetVendorId();
+				result.DeviceId = GetDeviceId(result.AdvertisingId, result.VendorId);
+				result.IsFirstLaunch = GetSetFirstLaunch();
 
-			return result;
+				_instance = result;
+			}
+
+			return _instance;
 		}
 
 		#endregion
@@ -138,26 +171,6 @@ namespace UnityAppTools
 
 		[System.Runtime.InteropServices.DllImport("__Internal")]
 		private static extern void _SetKeychainValue(string key, string value);
-
-#endif
-
-#if NET_4_6
-
-		private void InitializeInternal(TaskCompletionSource<AppInfo> tcs)
-		{
-			try
-			{
-				VendorId = GetVendorId();
-				DeviceId = GetDeviceId(AdvertisingId, VendorId);
-				IsFirstLaunch = GetSetFirstLaunch();
-
-				tcs.SetResult(this);
-			}
-			catch (Exception e)
-			{
-				tcs.SetException(e);
-			}
-		}
 
 #endif
 
