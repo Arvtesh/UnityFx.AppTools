@@ -57,8 +57,21 @@ namespace UnityAppTools
 		/// </summary>
 		public static Task<AppInfo> InitializeAsync()
 		{
-			var tcs = new TaskCompletionSource<AppInfo>();
 			var result = new AppInfo();
+
+#if UNITY_IOS && !UNITY_EDITOR
+
+			result.AdvertisingId = UnityEngine.iOS.Device.advertisingIdentifier;
+			result.IsAdvertisingTrackingEnabled = UnityEngine.iOS.Device.advertisingTrackingEnabled;
+			result.VendorId = UnityEngine.iOS.Device.vendorIdentifier;
+			result.DeviceId = GetDeviceId(result.AdvertisingId, result.VendorId);
+			result.IsFirstLaunch = GetSetFirstLaunch();
+
+			return Task.FromResult(result);
+
+#else
+
+			var tcs = new TaskCompletionSource<AppInfo>();
 
 			if (!Application.RequestAdvertisingIdentifierAsync((advertisingId, trackingEnabled, errorMsg) =>
 			{
@@ -78,6 +91,7 @@ namespace UnityAppTools
 			}
 
 			return tcs.Task;
+#endif
 		}
 
 #endif
@@ -88,6 +102,14 @@ namespace UnityAppTools
 		public static AppInfo Initialize()
 		{
 			var result = new AppInfo();
+
+#if UNITY_IOS && !UNITY_EDITOR
+
+			result.AdvertisingId = UnityEngine.iOS.Device.advertisingIdentifier;
+			result.IsAdvertisingTrackingEnabled = UnityEngine.iOS.Device.advertisingTrackingEnabled;
+
+#else
+
 			var advertisingId = string.Empty;
 
 			if (TryGetAdvertisingId(out advertisingId))
@@ -96,9 +118,11 @@ namespace UnityAppTools
 				result.IsAdvertisingTrackingEnabled = true;
 			}
 
+#endif
+
 			result.VendorId = GetVendorId();
-			result.DeviceId = GetDeviceId(advertisingId, result.VendorId);
-			result.IsFirstLaunch = GetFirstLaunch();
+			result.DeviceId = GetDeviceId(result.AdvertisingId, result.VendorId);
+			result.IsFirstLaunch = GetSetFirstLaunch();
 
 			return result;
 		}
@@ -107,7 +131,7 @@ namespace UnityAppTools
 
 		#region implementation
 
-#if UNITY_IOS
+#if UNITY_IOS && !UNITY_EDITOR
 
 		[System.Runtime.InteropServices.DllImport("__Internal")]
 		private static extern string _GetKeychainValue(string key);
@@ -119,13 +143,13 @@ namespace UnityAppTools
 
 #if NET_4_6
 
-			private void InitializeInternal(TaskCompletionSource<AppInfo> tcs)
+		private void InitializeInternal(TaskCompletionSource<AppInfo> tcs)
 		{
 			try
 			{
 				VendorId = GetVendorId();
 				DeviceId = GetDeviceId(AdvertisingId, VendorId);
-				IsFirstLaunch = GetFirstLaunch();
+				IsFirstLaunch = GetSetFirstLaunch();
 
 				tcs.SetResult(this);
 			}
@@ -137,7 +161,7 @@ namespace UnityAppTools
 
 #endif
 
-		private static bool GetFirstLaunch()
+		private static bool GetSetFirstLaunch()
 		{
 			if (PlayerPrefs.HasKey(Constants.KeyFirstLaunch))
 			{
@@ -152,44 +176,46 @@ namespace UnityAppTools
 
 		private static string GetDeviceId(string advertisingId, string vendorId)
 		{
-			var result = GetKeychainValue(Constants.KeyDeviceId);
-
-			if (string.IsNullOrEmpty(result))
+			if (PlayerPrefs.HasKey(Constants.KeyDeviceId))
 			{
-				if (PlayerPrefs.HasKey(Constants.KeyDeviceId))
-				{
-					result = PlayerPrefs.GetString(Constants.KeyDeviceId);
+				var result = PlayerPrefs.GetString(Constants.KeyDeviceId);
 
-					if (string.IsNullOrEmpty(result))
-					{
-						result = GenerateDeviceId(advertisingId, vendorId);
-					}
-					else
-					{
-						SetKeychainValue(Constants.KeyDeviceId, result);
-					}
-				}
-				else
+				if (string.IsNullOrEmpty(result))
 				{
 					result = GenerateDeviceId(advertisingId, vendorId);
 				}
-			}
 
-			return result;
+				return result;
+			}
+			else
+			{
+#if UNITY_IOS && !UNITY_EDITOR
+
+				var result = GetKeychainValue(Constants.KeyDeviceId);
+
+				if (string.IsNullOrEmpty(result))
+				{
+					result = GenerateDeviceId(advertisingId, vendorId);
+				}
+				else
+				{
+					PlayerPrefs.SetString(Constants.KeyDeviceId, result);
+					PlayerPrefs.Save();
+				}
+
+				return result;
+
+#else
+
+				return GenerateDeviceId(advertisingId, vendorId);
+
+#endif
+			}
 		}
 
 		private static string GenerateDeviceId(string advertisingId, string vendorId)
 		{
-			string result = null;
-
-			if (string.IsNullOrEmpty(advertisingId))
-			{
-				result = vendorId;
-			}
-			else
-			{
-				result = advertisingId;
-			}
+			var result = string.IsNullOrEmpty(advertisingId) ? vendorId : advertisingId;
 
 			if (string.IsNullOrEmpty(result))
 			{
@@ -199,25 +225,11 @@ namespace UnityAppTools
 			PlayerPrefs.SetString(Constants.KeyDeviceId, result);
 			PlayerPrefs.Save();
 
-			SetKeychainValue(Constants.KeyDeviceId, result);
+#if UNITY_IOS && !UNITY_EDITOR
+			_SetKeychainValue(Constants.KeyDeviceId, result);
+#endif
 
 			return result;
-		}
-
-		private static string GetKeychainValue(string key)
-		{
-#if UNITY_IOS && !UNITY_EDITOR
-			return _GetKeychainValue(key);
-#endif
-
-			return null;
-		}
-
-		private static void SetKeychainValue(string key, string value)
-		{
-#if UNITY_IOS && !UNITY_EDITOR
-			_SetKeychainValue(key, value);
-#endif
 		}
 
 		private static string GetVendorId()
