@@ -182,38 +182,43 @@ namespace UnityAppTools
 
 				if (string.IsNullOrEmpty(result))
 				{
-					result = GenerateDeviceId(advertisingId, vendorId);
+					result = GetDeviceId2(advertisingId, vendorId);
 				}
 
 				return result;
 			}
 			else
 			{
-#if UNITY_IOS && !UNITY_EDITOR
-
-				var result = GetKeychainValue(Constants.KeyDeviceId);
-
-				if (string.IsNullOrEmpty(result))
-				{
-					result = GenerateDeviceId(advertisingId, vendorId);
-				}
-				else
-				{
-					PlayerPrefs.SetString(Constants.KeyDeviceId, result);
-					PlayerPrefs.Save();
-				}
-
-				return result;
-
-#else
-
-				return GenerateDeviceId(advertisingId, vendorId);
-
-#endif
+				return GetDeviceId2(advertisingId, vendorId);
 			}
 		}
 
-		private static string GenerateDeviceId(string advertisingId, string vendorId)
+		private static string GetDeviceId2(string advertisingId, string vendorId)
+		{
+#if UNITY_IOS && !UNITY_EDITOR
+
+			var result = _GetKeychainValue(Constants.KeyDeviceId);
+
+			if (string.IsNullOrEmpty(result))
+			{
+				result = GetDeviceId3(advertisingId, vendorId);
+			}
+			else
+			{
+				PlayerPrefs.SetString(Constants.KeyDeviceId, result);
+				PlayerPrefs.Save();
+			}
+
+			return result;
+
+#else
+
+			return GetDeviceId3(advertisingId, vendorId);
+
+#endif
+		}
+
+		private static string GetDeviceId3(string advertisingId, string vendorId)
 		{
 			var result = string.IsNullOrEmpty(advertisingId) ? vendorId : advertisingId;
 
@@ -226,7 +231,9 @@ namespace UnityAppTools
 			PlayerPrefs.Save();
 
 #if UNITY_IOS && !UNITY_EDITOR
+
 			_SetKeychainValue(Constants.KeyDeviceId, result);
+
 #endif
 
 			return result;
