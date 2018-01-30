@@ -339,26 +339,7 @@ namespace UnityAppTools
 			get
 			{
 				ThrowIfDisposed();
-
-				if (_waitHandle == null)
-				{
-					var done = IsCompleted;
-					var mre = new ManualResetEvent(done);
-
-					if (Interlocked.CompareExchange(ref _waitHandle, mre, null) != null)
-					{
-						// Another thread created this object's event; dispose the event we just created.
-						mre.Close();
-					}
-					else if (!done && IsCompleted)
-					{
-						// We published the event as unset, but the operation has subsequently completed;
-						// set the event state properly so that callers do not deadlock.
-						_waitHandle.Set();
-					}
-				}
-
-				return _waitHandle;
+				return Utilities.TryCreateAsyncWaitHandle(ref _waitHandle, this);
 			}
 		}
 
