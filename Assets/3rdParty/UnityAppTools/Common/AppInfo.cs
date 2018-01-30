@@ -2,13 +2,15 @@
 // Licensed under the MIT license. See the LICENSE.md file in the project root for more information.
 
 using System;
+#if NET_4_6
 using System.Threading.Tasks;
+#endif
 using UnityEngine;
 
 namespace UnityAppTools
 {
 	/// <summary>
-	/// 
+	/// Provides app-related utilities (app identifiers, first launch flag etc).
 	/// </summary>
 	public sealed class AppInfo
 	{
@@ -53,12 +55,49 @@ namespace UnityAppTools
 		/// </summary>
 		public bool IsFirstLaunch { get; private set; }
 
-#if NET_4_6
+		/// <summary>
+		/// Initializes the app info blocking calling thread until completed. Consider using non-blocking <see cref="InitializeAsync"/> instead.
+		/// </summary>
+		/// <seealso cref="InitializeAsync"/>
+		public static AppInfo Initialize()
+		{
+			if (_instance == null)
+			{
+				var result = new AppInfo();
+				var advertisingId = string.Empty;
+
+				if (TryGetAdvertisingId(out advertisingId))
+				{
+					result.AdvertisingId = advertisingId;
+					result.IsAdvertisingTrackingEnabled = true;
+				}
+
+				result.VendorId = GetVendorId();
+				result.DeviceId = GetDeviceId(result.AdvertisingId, result.VendorId);
+				result.IsFirstLaunch = GetSetFirstLaunch();
+
+				_instance = result;
+			}
+
+			return _instance;
+		}
 
 		/// <summary>
-		/// 
+		/// Initiates the app info initialization.
 		/// </summary>
-		public static Task<AppInfo> InitializeAsync()
+		/// <seealso cref="InitializeAsync(AsyncCallback, object)"/>
+		/// <seealso cref="Initialize"/>
+		public static IAsyncOperation<AppInfo> InitializeAsync()
+		{
+			return InitializeAsync(null, null);
+		}
+
+		/// <summary>
+		/// Initiates the app info initialization.
+		/// </summary>
+		/// <seealso cref="InitializeAsync"/>
+		/// <seealso cref="Initialize"/>
+		public static IAsyncOperation<AppInfo> InitializeAsync(AsyncCallback asyncCallback, object asyncState)
 		{
 			if (_instance == null)
 			{
@@ -74,11 +113,11 @@ namespace UnityAppTools
 
 				_instance = result;
 
-				return Task.FromResult(result);
+				return new AsyncResult<AppInfo>(result, true, asyncCallback, asyncState);
 
 #else
 
-				var tcs = new TaskCompletionSource<AppInfo>();
+				var asyncResult = new AsyncResult<AppInfo>(asyncCallback, asyncState);
 
 				if (!Application.RequestAdvertisingIdentifierAsync((advertisingId, trackingEnabled, errorMsg) =>
 				{
@@ -93,17 +132,17 @@ namespace UnityAppTools
 							result.DeviceId = GetDeviceId(advertisingId, result.VendorId);
 							result.IsFirstLaunch = GetSetFirstLaunch();
 
-							tcs.SetResult(result);
+							asyncResult.SetResult(result);
 							_instance = result;
 						}
 						catch (Exception e)
 						{
-							tcs.TrySetException(e);
+							asyncResult.TrySetException(e);
 						}
 					}
 					else
 					{
-						tcs.TrySetException(new Exception(errorMsg));
+						asyncResult.TrySetException(new Exception(errorMsg));
 					}
 				}))
 				{
@@ -111,54 +150,58 @@ namespace UnityAppTools
 					result.DeviceId = GetDeviceId(null, result.VendorId);
 					result.IsFirstLaunch = GetSetFirstLaunch();
 
-					tcs.SetResult(result);
+					asyncResult.SetResult(result, true);
 					_instance = result;
 				}
 
-				return tcs.Task;
+				return asyncResult;
 #endif
+			}
+
+			return new AsyncResult<AppInfo>(_instance, true, asyncCallback, asyncState);
+		}
+
+#if NET_4_6
+
+		/// <summary>
+		/// Initiates the app info initialization.
+		/// </summary>
+		/// <seealso cref="InitializeAsync"/>
+		/// <seealso cref="Initialize"/>
+		public static Task<AppInfo> InitializeTaskAsync()
+		{
+			if (_instance == null)
+			{
+				var tcs = new TaskCompletionSource<AppInfo>();
+
+				InitializeAsync(
+					asyncResult =>
+					{
+						var op = asyncResult as AsyncResult<AppInfo>;
+						var cs = op.AsyncState as TaskCompletionSource<AppInfo>;
+
+						if (op.IsCompletedSuccessfully)
+						{
+							cs.TrySetResult(op.Result);
+						}
+						else if (op.IsCanceled)
+						{
+							cs.TrySetCanceled();
+						}
+						else
+						{
+							cs.TrySetException(op.Exception);
+						}
+					},
+					tsc);
+
+				return tcs.Task;
 			}
 
 			return Task.FromResult(_instance);
 		}
 
 #endif
-
-		/// <summary>
-		/// 
-		/// </summary>
-		public static AppInfo Initialize()
-		{
-			if (_instance == null)
-			{
-				var result = new AppInfo();
-
-#if UNITY_IOS && !UNITY_EDITOR
-
-				result.AdvertisingId = UnityEngine.iOS.Device.advertisingIdentifier;
-				result.IsAdvertisingTrackingEnabled = UnityEngine.iOS.Device.advertisingTrackingEnabled;
-
-#else
-
-				var advertisingId = string.Empty;
-
-				if (TryGetAdvertisingId(out advertisingId))
-				{
-					result.AdvertisingId = advertisingId;
-					result.IsAdvertisingTrackingEnabled = true;
-				}
-
-#endif
-
-				result.VendorId = GetVendorId();
-				result.DeviceId = GetDeviceId(result.AdvertisingId, result.VendorId);
-				result.IsFirstLaunch = GetSetFirstLaunch();
-
-				_instance = result;
-			}
-
-			return _instance;
-		}
 
 		#endregion
 
