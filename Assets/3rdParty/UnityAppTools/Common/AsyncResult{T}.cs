@@ -17,7 +17,7 @@ namespace UnityAppTools
 	/// </summary>
 	/// <seealso href="https://blogs.msdn.microsoft.com/nikos/2011/03/14/how-to-implement-the-iasyncresult-design-pattern/"/>
 	[DebuggerDisplay("{DebuggerDisplay,nq}")]
-	public class AsyncResult<T> : AsyncResult, IAsyncOperation<T>, IAsyncResult, IEnumerator, IDisposable
+	public class AsyncResult<T> : AsyncResult, IAsyncOperation<T>, IEnumerator
 	{
 		#region data
 
@@ -30,6 +30,8 @@ namespace UnityAppTools
 		private const int _typeMask = 0x3;
 
 		private const string _strOperationCompleted = "The operation is already completed.";
+
+		private readonly string _name;
 
 		private AsyncCallback _asyncCallback;
 		private object _asyncState;
@@ -52,6 +54,14 @@ namespace UnityAppTools
 		/// <summary>
 		/// Initializes a new instance of the <see cref="AsyncResult"/> class.
 		/// </summary>
+		public AsyncResult(string name)
+		{
+			_name = name;
+		}
+
+		/// <summary>
+		/// Initializes a new instance of the <see cref="AsyncResult"/> class.
+		/// </summary>
 		public AsyncResult(AsyncCallback asyncCallback, object asyncState)
 		{
 			_asyncCallback = asyncCallback;
@@ -61,8 +71,27 @@ namespace UnityAppTools
 		/// <summary>
 		/// Initializes a new instance of the <see cref="AsyncResult"/> class.
 		/// </summary>
-		public AsyncResult(T result, bool completedSynchronously, AsyncCallback asyncCallback, object asyncState)
+		public AsyncResult(string name, AsyncCallback asyncCallback, object asyncState)
 		{
+			_name = name;
+			_asyncCallback = asyncCallback;
+			_asyncState = asyncState;
+		}
+
+		/// <summary>
+		/// Initializes a new instance of the <see cref="AsyncResult"/> class.
+		/// </summary>
+		public AsyncResult(T result, bool completedSynchronously, AsyncCallback asyncCallback, object asyncState)
+			: this(null, result, completedSynchronously, asyncCallback, asyncState)
+		{
+		}
+
+		/// <summary>
+		/// Initializes a new instance of the <see cref="AsyncResult"/> class.
+		/// </summary>
+		public AsyncResult(string name, T result, bool completedSynchronously, AsyncCallback asyncCallback, object asyncState)
+		{
+			_name = name;
 			_result = result;
 			_status = _statusCompleted;
 			_asyncState = asyncState;
@@ -82,7 +111,16 @@ namespace UnityAppTools
 		/// Initializes a new instance of the <see cref="AsyncResult"/> class.
 		/// </summary>
 		public AsyncResult(Exception e, bool completedSynchronously, AsyncCallback asyncCallback, object asyncState)
+			: this(null, e, completedSynchronously, asyncCallback, asyncState)
 		{
+		}
+
+		/// <summary>
+		/// Initializes a new instance of the <see cref="AsyncResult"/> class.
+		/// </summary>
+		public AsyncResult(string name, Exception e, bool completedSynchronously, AsyncCallback asyncCallback, object asyncState)
+		{
+			_name = name;
 			_exception = e;
 			_status = _statusFaulted;
 			_asyncState = asyncState;
@@ -104,6 +142,8 @@ namespace UnityAppTools
 		/// <returns>Result of the operation.</returns>
 		public T Join()
 		{
+			ThrowIfDisposed();
+
 			if (!IsCompleted)
 			{
 				AsyncWaitHandle.WaitOne();
@@ -127,6 +167,8 @@ namespace UnityAppTools
 		/// <returns>Result of the operation.</returns>
 		public T JoinSleep(int millisecondsSleepTimeout)
 		{
+			ThrowIfDisposed();
+
 			while (!IsCompleted)
 			{
 				Thread.Sleep(millisecondsSleepTimeout);
@@ -142,6 +184,15 @@ namespace UnityAppTools
 			}
 
 			return _result;
+		}
+
+		/// <summary>
+		/// Returns the operation name.
+		/// </summary>
+		/// <returns>Name of the operation.</returns>
+		protected string GetOperationName()
+		{
+			return string.IsNullOrEmpty(_name) ? GetType().Name : _name;
 		}
 
 		/// <summary>
@@ -167,17 +218,9 @@ namespace UnityAppTools
 		}
 
 		/// <summary>
-		/// Returns the operation name.
-		/// </summary>
-		/// <returns>Name of the operation.</returns>
-		protected virtual string GetOperationName()
-		{
-			return "AsyncResult";
-		}
-
-		/// <summary>
 		/// Called on each <see cref="MoveNext"/> invokation to update the operation state if needed.
 		/// </summary>
+		/// <seealso cref="OnCompleted"/>
 		protected virtual void OnUpdate()
 		{
 		}
@@ -185,6 +228,7 @@ namespace UnityAppTools
 		/// <summary>
 		/// Called when the operation is completed.
 		/// </summary>
+		/// <seealso cref="OnUpdate"/>
 		protected virtual void OnCompleted()
 		{
 			if (_waitHandle != null)
@@ -196,6 +240,27 @@ namespace UnityAppTools
 			{
 				_asyncCallback.Invoke(this);
 				_asyncCallback = null;
+			}
+		}
+
+		/// <summary>
+		/// Releases unmanaged resources used by the object.
+		/// </summary>
+		/// <param name="disposing">Should be <see langword="true"/> if the method is called from <see cref="Dispose()"/>; <see langword="false"/> otherwise.</param>
+		/// <seealso cref="Dispose()"/>
+		/// <seealso cref="ThrowIfDisposed"/>
+		protected virtual void Dispose(bool disposing)
+		{
+			if (disposing && (_status & _statusDisposedFlag) == 0)
+			{
+				_status |= _statusDisposedFlag;
+				_asyncCallback = null;
+
+				if (_waitHandle != null)
+				{
+					_waitHandle.Close();
+					_waitHandle = null;
+				}
 			}
 		}
 
@@ -310,7 +375,6 @@ namespace UnityAppTools
 		{
 			get
 			{
-				ThrowIfDisposed();
 				ThrowIfNotCompletedSuccessfully();
 				return _result;
 			}
@@ -434,24 +498,13 @@ namespace UnityAppTools
 		/// <inheritdoc/>
 		public void Dispose()
 		{
-			if ((_status & _statusDisposedFlag) == 0)
+			if (!IsCompleted)
 			{
-				if (!IsCompleted)
-				{
-					throw new InvalidOperationException("Cannot dispose non-completed operation.");
-				}
-
-				_status |= _statusDisposedFlag;
-				_asyncCallback = null;
-				_asyncState = null;
-				_exception = null;
-
-				if (_waitHandle != null)
-				{
-					_waitHandle.Close();
-					_waitHandle = null;
-				}
+				throw new InvalidOperationException("Cannot dispose non-completed operation.");
 			}
+
+			Dispose(true);
+			GC.SuppressFinalize(this);
 		}
 
 		#endregion
