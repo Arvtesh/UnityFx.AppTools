@@ -17,7 +17,7 @@ namespace UnityAppTools
 	/// </summary>
 	/// <seealso href="https://blogs.msdn.microsoft.com/nikos/2011/03/14/how-to-implement-the-iasyncresult-design-pattern/"/>
 	[DebuggerDisplay("{DebuggerDisplay,nq}")]
-	public class AsyncResult<T> : IAsyncOperation<T>, IAsyncResult, IEnumerator, IDisposable
+	public class AsyncResult<T> : AsyncResult, IAsyncOperation<T>, IAsyncResult, IEnumerator, IDisposable
 	{
 		#region data
 
@@ -107,6 +107,29 @@ namespace UnityAppTools
 			if (!IsCompleted)
 			{
 				AsyncWaitHandle.WaitOne();
+			}
+
+			if (_exception != null)
+			{
+#if NET_4_6
+				ExceptionDispatchInfo.Capture(_exception).Throw();
+#else
+				throw _exception;
+#endif
+			}
+
+			return _result;
+		}
+
+		/// <summary>
+		/// Blocks until the operation is completed. Uses <see cref="Thread.Sleep(int)"/> instead of <see cref="AsyncWaitHandle"/> for waiting.
+		/// </summary>
+		/// <returns>Result of the operation.</returns>
+		public T JoinSleep(int millisecondsSleepTimeout)
+		{
+			while (!IsCompleted)
+			{
+				Thread.Sleep(millisecondsSleepTimeout);
 			}
 
 			if (_exception != null)
@@ -339,7 +362,7 @@ namespace UnityAppTools
 			get
 			{
 				ThrowIfDisposed();
-				return Utilities.TryCreateAsyncWaitHandle(ref _waitHandle, this);
+				return TryCreateAsyncWaitHandle(ref _waitHandle, this);
 			}
 		}
 

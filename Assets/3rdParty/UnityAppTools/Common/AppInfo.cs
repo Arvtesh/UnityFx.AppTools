@@ -16,6 +16,10 @@ namespace UnityAppTools
 	{
 		#region data
 
+		public const string _keyPrefix = "AppInfo.";
+		public const string _keyDeviceId = _keyPrefix + "DeviceId";
+		public const string _keyFirstLaunch = _keyPrefix + "FirstLaunch";
+
 		private static AppInfo _instance;
 
 		#endregion
@@ -219,22 +223,22 @@ namespace UnityAppTools
 
 		private static bool GetSetFirstLaunch()
 		{
-			if (PlayerPrefs.HasKey(Constants.KeyFirstLaunch))
+			if (PlayerPrefs.HasKey(_keyFirstLaunch))
 			{
 				return false;
 			}
 			else
 			{
-				PlayerPrefs.SetInt(Constants.KeyFirstLaunch, 0);
+				PlayerPrefs.SetInt(_keyFirstLaunch, 0);
 				return true;
 			}
 		}
 
 		private static string GetDeviceId(string advertisingId, string vendorId)
 		{
-			if (PlayerPrefs.HasKey(Constants.KeyDeviceId))
+			if (PlayerPrefs.HasKey(_keyDeviceId))
 			{
-				var result = PlayerPrefs.GetString(Constants.KeyDeviceId);
+				var result = PlayerPrefs.GetString(_keyDeviceId);
 
 				if (string.IsNullOrEmpty(result))
 				{
@@ -253,7 +257,7 @@ namespace UnityAppTools
 		{
 #if UNITY_IOS && !UNITY_EDITOR
 
-			var result = _GetKeychainValue(Constants.KeyDeviceId);
+			var result = _GetKeychainValue(_keyDeviceId);
 
 			if (string.IsNullOrEmpty(result))
 			{
@@ -261,7 +265,7 @@ namespace UnityAppTools
 			}
 			else
 			{
-				PlayerPrefs.SetString(Constants.KeyDeviceId, result);
+				PlayerPrefs.SetString(_keyDeviceId, result);
 				PlayerPrefs.Save();
 			}
 
@@ -283,12 +287,12 @@ namespace UnityAppTools
 				result = Guid.NewGuid().ToString().Replace("-", string.Empty);
 			}
 
-			PlayerPrefs.SetString(Constants.KeyDeviceId, result);
+			PlayerPrefs.SetString(_keyDeviceId, result);
 			PlayerPrefs.Save();
 
 #if UNITY_IOS && !UNITY_EDITOR
 
-			_SetKeychainValue(Constants.KeyDeviceId, result);
+			_SetKeychainValue(_keyDeviceId, result);
 
 #endif
 

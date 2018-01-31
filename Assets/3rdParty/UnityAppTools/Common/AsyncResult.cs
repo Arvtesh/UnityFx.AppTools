@@ -2,16 +2,17 @@
 // Licensed under the MIT license. See the LICENSE.md file in the project root for more information.
 
 using System;
-using System.Diagnostics;
 using System.Threading;
 
 namespace UnityAppTools
 {
 	/// <summary>
-	/// 
+	/// Defines <see cref="IAsyncResult"/> related helpers.
 	/// </summary>
-	public static class Utilities
+	public abstract class AsyncResult
 	{
+		#region interface
+
 		/// <summary>
 		/// 
 		/// </summary>
@@ -40,5 +41,7 @@ namespace UnityAppTools
 
 			return waitHandle;
 		}
+
+		#endregion
 	}
 }

@@ -11,56 +11,19 @@ namespace UnityAppTools
 {
 	/// <summary>
 	/// Main thread scheduler that can be used make sure the code is executed on the main thread.
-	/// The implementation setups a <see cref="SynchronizationContext"/> and attaches it to the main thread.
-	/// Do not use this on Unity 2017+ with .NET 4.6 profile (there is a native Unity <see cref="SynchronizationContext"/>
-	/// attached to the main thread already).
+	/// The implementation setups a <see cref="SynchronizationContext"/> (if there is none) and
+	/// attaches it to the main thread.
 	/// </summary>
 	/// <seealso cref="UnitySynchronizationContext"/>
 	public sealed class MainThreadScheduler : MonoBehaviour, IAsyncScheduler
 	{
 		#region data
 
-		private sealed class InvokeResult : IAsyncResult
+		private sealed class InvokeResult : AsyncResult<object>
 		{
-			private readonly AsyncCallback _asyncCallback;
-			private readonly object _asyncState;
-			private EventWaitHandle _event;
-
-			public object AsyncState { get { return _asyncState; } }
-			public WaitHandle AsyncWaitHandle { get { return Utilities.TryCreateAsyncWaitHandle(ref _event, this); } }
-			public bool CompletedSynchronously { get { return false; } }
-			public bool IsCompleted { get; private set; }
-			public Exception Exception { get; set; }
-
 			public InvokeResult(AsyncCallback asyncCallback, object asyncState)
+				: base(asyncCallback, asyncState)
 			{
-				_asyncCallback = asyncCallback;
-				_asyncState = asyncState;
-				_event = new ManualResetEvent(false);
-			}
-
-			public void Join()
-			{
-				Utilities.TryCreateAsyncWaitHandle(ref _event, this);
-
-				_event.WaitOne();
-				_event.Close();
-				_event = null;
-			}
-
-			public void SetCompleted()
-			{
-				IsCompleted = true;
-
-				if (_event != null)
-				{
-					_event.Set();
-				}
-
-				if (_asyncCallback != null)
-				{
-					_asyncCallback(this);
-				}
 			}
 		}
 
@@ -92,7 +55,14 @@ namespace UnityAppTools
 				throw new ArgumentNullException("d");
 			}
 
-			return BeginInvokeInternal(d, asyncState);
+			if (!this)
+			{
+				throw new InvalidOperationException();
+			}
+
+			var asyncResult = new InvokeResult(null, asyncState);
+			PostInternal(d, asyncResult);
+			return asyncResult;
 		}
 
 		/// <summary>
@@ -109,9 +79,22 @@ namespace UnityAppTools
 				throw new ArgumentNullException("asyncResult");
 			}
 
+			if (!this)
+			{
+				throw new InvalidOperationException();
+			}
+
+			if (_mainThreadId == Thread.CurrentThread.ManagedThreadId)
+			{
+				throw new InvalidOperationException("Calling EndInvoke() from the main thread will likely cause a deadlock.");
+			}
+
 			if (asyncResult is InvokeResult)
 			{
-				EndInvokeInternal(asyncResult as InvokeResult);
+				using (var op = asyncResult as InvokeResult)
+				{
+					op.Join();
+				}
 			}
 			else
 			{
@@ -127,23 +110,26 @@ namespace UnityAppTools
 		{
 			var currentContext = SynchronizationContext.Current;
 
-			if (currentContext != null)
+			if (currentContext == null)
 			{
-				throw new InvalidOperationException("SynchronizationContext instance is already set.");
+				var context = new UnitySynchronizationContext(this);
+				SynchronizationContext.SetSynchronizationContext(context);
+				_context = context;
 			}
 
-			var context = new UnitySynchronizationContext(this);
-			SynchronizationContext.SetSynchronizationContext(context);
-
-			_context = context;
 			_mainThreadId = Thread.CurrentThread.ManagedThreadId;
 		}
 
 		private void OnDestroy()
 		{
-			if (_context == SynchronizationContext.Current)
+			if (_context != null && _context == SynchronizationContext.Current)
 			{
 				SynchronizationContext.SetSynchronizationContext(null);
+			}
+
+			lock (_actionQueue)
+			{
+				_actionQueue.Clear();
 			}
 
 			_context = null;
@@ -165,13 +151,12 @@ namespace UnityAppTools
 							try
 							{
 								data.Action.Invoke(asyncResult.AsyncState);
+								asyncResult.SetResult(null);
 							}
 							catch (Exception e)
 							{
-								asyncResult.Exception = e;
+								asyncResult.TrySetException(e);
 							}
-
-							asyncResult.SetCompleted();
 						}
 						else
 						{
@@ -179,7 +164,7 @@ namespace UnityAppTools
 							{
 								data.Action.Invoke(data.State);
 							}
-							catch (Exception e)
+							catch (Exception)
 							{
 								// TODO
 							}
@@ -201,14 +186,20 @@ namespace UnityAppTools
 				throw new ArgumentNullException("d");
 			}
 
+			if (!this)
+			{
+				throw new InvalidOperationException();
+			}
+
 			if (_mainThreadId == Thread.CurrentThread.ManagedThreadId)
 			{
 				d.Invoke(state);
 			}
 			else
 			{
-				var asyncResult = BeginInvokeInternal(d, state);
-				EndInvokeInternal(asyncResult);
+				var asyncResult = new InvokeResult(null, state);
+				PostInternal(d, asyncResult);
+				asyncResult.JoinSleep(0);
 			}
 		}
 
@@ -218,6 +209,11 @@ namespace UnityAppTools
 			if (d == null)
 			{
 				throw new ArgumentNullException("d");
+			}
+
+			if (!this)
+			{
+				throw new InvalidOperationException();
 			}
 
 			PostInternal(d, state);
@@ -232,26 +228,6 @@ namespace UnityAppTools
 			lock (_actionQueue)
 			{
 				_actionQueue.Enqueue(new ActionData() { Action = d, State = asyncState });
-			}
-		}
-
-		private InvokeResult BeginInvokeInternal(SendOrPostCallback d, object asyncState)
-		{
-			var result = new InvokeResult(null, asyncState);
-			PostInternal(d, result);
-			return result;
-		}
-
-		private void EndInvokeInternal(InvokeResult asyncResult)
-		{
-			if (!asyncResult.IsCompleted)
-			{
-				asyncResult.Join();
-			}
-
-			if (asyncResult.Exception != null)
-			{
-				throw asyncResult.Exception;
 			}
 		}
 

@@ -11,7 +11,7 @@ namespace UnityAppTools
 	/// do not use unless absolutely nessesary.
 	/// </summary>
 	/// <seealso cref="IAsyncScheduler"/>
-	public sealed class UnitySynchronizationContext : SynchronizationContext, IDisposable
+	public sealed class UnitySynchronizationContext : SynchronizationContext
 	{
 		#region data
 
@@ -41,46 +41,24 @@ namespace UnityAppTools
 		/// <inheritdoc/>
 		public override SynchronizationContext CreateCopy()
 		{
-			ThrowifDisposed();
 			return new UnitySynchronizationContext(_scheduler);
 		}
 
 		/// <inheritdoc/>
 		public override void Send(SendOrPostCallback d, object state)
 		{
-			ThrowifDisposed();
 			_scheduler.Send(d, state);
 		}
 
 		/// <inheritdoc/>
 		public override void Post(SendOrPostCallback d, object state)
 		{
-			ThrowifDisposed();
 			_scheduler.Post(d, state);
 		}
 
 		#endregion
 
-		#region IDisposable
-
-		/// <inheritdoc/>
-		public void Dispose()
-		{
-			_scheduler = null;
-		}
-
-		#endregion
-
 		#region implementation
-
-		private void ThrowifDisposed()
-		{
-			if (_scheduler == null)
-			{
-				throw new ObjectDisposedException(GetType().Name);
-			}
-		}
-
 		#endregion
 	}
 }
