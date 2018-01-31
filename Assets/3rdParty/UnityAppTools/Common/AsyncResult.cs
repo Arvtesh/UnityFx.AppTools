@@ -3,6 +3,9 @@
 
 using System;
 using System.Diagnostics;
+#if NET_4_6
+using System.Runtime.ExceptionServices;
+#endif
 using System.Threading;
 
 namespace UnityAppTools
@@ -12,17 +15,11 @@ namespace UnityAppTools
 	/// </summary>
 	/// <seealso href="https://blogs.msdn.microsoft.com/nikos/2011/03/14/how-to-implement-the-iasyncresult-design-pattern/"/>
 	[DebuggerDisplay("{DebuggerDisplay,nq}")]
-	public abstract class AsyncResult : IAsyncResult, IDisposable
+	public class AsyncResult : IAsyncResult, IDisposable
 	{
 		#region data
 
-		private const int _statusRunning = 0;
-		private const int _statusDisposedFlag = 1;
-		private const int _statusSynchronousFlag = 2;
-		private const int _statusCompletedFlag = 4;
-		private const int _statusFaultedFlag = 8;
-		private const int _statusCanceledFlag = 16;
-		private const int _completedMask = _statusCompletedFlag | _statusFaultedFlag | _statusCanceledFlag;
+		private const int _completedMask = StatusCompletedFlag | StatusFaultedFlag | StatusCanceledFlag;
 
 		private readonly string _name;
 		private readonly AsyncCallback _asyncCallback;
@@ -36,17 +33,24 @@ namespace UnityAppTools
 
 		#region interface
 
+		protected const int StatusRunning = 0;
+		protected const int StatusDisposedFlag = 1;
+		protected const int StatusSynchronousFlag = 2;
+		protected const int StatusCompletedFlag = 4;
+		protected const int StatusFaultedFlag = 8;
+		protected const int StatusCanceledFlag = 16;
+
 		/// <summary>
 		/// Initializes a new instance of the <see cref="AsyncResult"/> class.
 		/// </summary>
-		protected AsyncResult()
+		public AsyncResult()
 		{
 		}
 
 		/// <summary>
 		/// Initializes a new instance of the <see cref="AsyncResult"/> class.
 		/// </summary>
-		protected AsyncResult(string name)
+		public AsyncResult(string name)
 		{
 			_name = name;
 		}
@@ -54,7 +58,7 @@ namespace UnityAppTools
 		/// <summary>
 		/// Initializes a new instance of the <see cref="AsyncResult"/> class.
 		/// </summary>
-		protected AsyncResult(AsyncCallback asyncCallback, object asyncState)
+		public AsyncResult(AsyncCallback asyncCallback, object asyncState)
 		{
 			_asyncCallback = asyncCallback;
 			_asyncState = asyncState;
@@ -63,7 +67,7 @@ namespace UnityAppTools
 		/// <summary>
 		/// Initializes a new instance of the <see cref="AsyncResult"/> class.
 		/// </summary>
-		protected AsyncResult(string name, AsyncCallback asyncCallback, object asyncState)
+		public AsyncResult(string name, AsyncCallback asyncCallback, object asyncState)
 		{
 			_name = name;
 			_asyncCallback = asyncCallback;
@@ -71,27 +75,35 @@ namespace UnityAppTools
 		}
 
 		/// <summary>
-		/// Initializes a new instance of the <see cref="AsyncResult"/> class.
+		/// Blocks until the operation is completed.
 		/// </summary>
-		protected AsyncResult(string name, int status, bool completedSynchronously, AsyncCallback asyncCallback, object asyncState)
+		/// <returns>Result of the operation.</returns>
+		public void Join()
 		{
-			Debug.Assert(status > _statusRunning);
+			ThrowIfDisposed();
 
-			_name = name;
-			_asyncCallback = asyncCallback;
-			_asyncState = asyncState;
-			_status = status | _statusCompletedFlag;
-			_asyncState = asyncState;
-
-			if (completedSynchronously)
+			if (!IsCompleted)
 			{
-				_status |= _statusSynchronousFlag;
+				AsyncWaitHandle.WaitOne();
 			}
 
-			if (asyncCallback != null)
+			ThrowIfFaulted();
+		}
+
+		/// <summary>
+		/// Blocks until the operation is completed. Uses <see cref="Thread.Sleep(int)"/> instead of <see cref="AsyncWaitHandle"/> for waiting.
+		/// </summary>
+		/// <returns>Result of the operation.</returns>
+		public void JoinSleep(int millisecondsSleepTimeout)
+		{
+			ThrowIfDisposed();
+
+			while (!IsCompleted)
 			{
-				asyncCallback.Invoke(this);
+				Thread.Sleep(millisecondsSleepTimeout);
 			}
+
+			ThrowIfFaulted();
 		}
 
 		/// <summary>
@@ -102,21 +114,40 @@ namespace UnityAppTools
 		/// <returns></returns>
 		protected bool TrySetStatus(int newStatus, bool completedSynchronously)
 		{
-			if (_status == _statusRunning)
+			if (_status == StatusRunning)
 			{
 				if (completedSynchronously)
 				{
-					newStatus |= _statusCompletedFlag | _statusSynchronousFlag;
-				}
-				else
-				{
-					newStatus |= _statusCompletedFlag;
+					newStatus |= StatusSynchronousFlag;
 				}
 
-				return Interlocked.CompareExchange(ref _status, newStatus, _statusRunning) == _statusRunning;
+				return Interlocked.CompareExchange(ref _status, newStatus, StatusRunning) == StatusRunning;
 			}
 
 			return false;
+		}
+
+		/// <summary>
+		/// Throws an exception stored in the operation (if any).
+		/// </summary>
+		protected void ThrowIfFaulted()
+		{
+			if (_exception != null)
+			{
+#if NET_4_6
+				ExceptionDispatchInfo.Capture(_exception).Throw();
+#else
+				throw _exception;
+#endif
+			}
+		}
+
+		/// <summary>
+		/// 
+		/// </summary>
+		protected void ThrowCompleted()
+		{
+			throw new InvalidOperationException("The operation is already completed.");
 		}
 
 		/// <summary>
@@ -124,7 +155,7 @@ namespace UnityAppTools
 		/// </summary>
 		protected void ThrowIfDisposed()
 		{
-			if ((_status & _statusDisposedFlag) != 0)
+			if ((_status & StatusDisposedFlag) != 0)
 			{
 				throw new ObjectDisposedException(GetOperationName());
 			}
@@ -146,6 +177,96 @@ namespace UnityAppTools
 		protected string GetOperationName()
 		{
 			return string.IsNullOrEmpty(_name) ? GetType().Name : _name;
+		}
+
+		#endregion
+
+		#region static interface
+
+		/// <summary>
+		/// 
+		/// </summary>
+		/// <typeparam name="T"></typeparam>
+		/// <param name="result"></param>
+		/// <returns></returns>
+		public static AsyncResult<T> FromResult<T>(T result)
+		{
+			var op = new AsyncResult<T>();
+			op.TrySetResult(result, true);
+			return op;
+		}
+
+		/// <summary>
+		/// 
+		/// </summary>
+		/// <typeparam name="T"></typeparam>
+		/// <param name="result"></param>
+		/// <param name="asyncCallback"></param>
+		/// <param name="asyncState"></param>
+		/// <returns></returns>
+		public static AsyncResult<T> FromResult<T>(T result, AsyncCallback asyncCallback, object asyncState)
+		{
+			var op = new AsyncResult<T>(asyncCallback, asyncState);
+			op.TrySetResult(result, true);
+			return op;
+		}
+
+		/// <summary>
+		/// 
+		/// </summary>
+		/// <typeparam name="T"></typeparam>
+		/// <param name="e"></param>
+		/// <param name="asyncCallback"></param>
+		/// <param name="asyncState"></param>
+		/// <returns></returns>
+		public static AsyncResult<T> FromException<T>(Exception e)
+		{
+			var op = new AsyncResult<T>();
+			op.TrySetException(e, true);
+			return op;
+		}
+
+		/// <summary>
+		/// 
+		/// </summary>
+		/// <typeparam name="T"></typeparam>
+		/// <param name="e"></param>
+		/// <param name="asyncCallback"></param>
+		/// <param name="asyncState"></param>
+		/// <returns></returns>
+		public static AsyncResult<T> FromException<T>(Exception e, AsyncCallback asyncCallback, object asyncState)
+		{
+			var op = new AsyncResult<T>(asyncCallback, asyncState);
+			op.TrySetException(e, true);
+			return op;
+		}
+
+		/// <summary>
+		/// 
+		/// </summary>
+		/// <typeparam name="T"></typeparam>
+		/// <param name="asyncCallback"></param>
+		/// <param name="asyncState"></param>
+		/// <returns></returns>
+		public static AsyncResult<T> FromCanceled<T>()
+		{
+			var op = new AsyncResult<T>();
+			op.TrySetCanceled(true);
+			return op;
+		}
+
+		/// <summary>
+		/// 
+		/// </summary>
+		/// <typeparam name="T"></typeparam>
+		/// <param name="asyncCallback"></param>
+		/// <param name="asyncState"></param>
+		/// <returns></returns>
+		public static AsyncResult<T> FromCanceled<T>(AsyncCallback asyncCallback, object asyncState)
+		{
+			var op = new AsyncResult<T>(asyncCallback, asyncState);
+			op.TrySetCanceled(true);
+			return op;
 		}
 
 		/// <summary>
@@ -182,8 +303,17 @@ namespace UnityAppTools
 		#region virtual interface
 
 		/// <summary>
+		/// Called on each <see cref="MoveNext"/> invokation to update the operation state if needed.
+		/// </summary>
+		/// <seealso cref="OnCompleted"/>
+		protected virtual void OnUpdate()
+		{
+		}
+
+		/// <summary>
 		/// Called when the operation is completed.
 		/// </summary>
+		/// <seealso cref="OnUpdate"/>
 		protected virtual void OnCompleted()
 		{
 			if (_waitHandle != null)
@@ -207,7 +337,7 @@ namespace UnityAppTools
 		{
 			if (disposing)
 			{
-				_status |= _statusDisposedFlag;
+				_status |= StatusDisposedFlag;
 
 				if (_waitHandle != null)
 				{
@@ -224,6 +354,36 @@ namespace UnityAppTools
 		/// <summary>
 		/// 
 		/// </summary>
+		/// <param name="completedSynchronously"></param>
+		/// <seealso cref="TrySetException(Exception, bool)"/>
+		public void SetCompleted(bool completedSynchronously = false)
+		{
+			if (!TrySetCompleted(completedSynchronously))
+			{
+				ThrowCompleted();
+			}
+		}
+
+		/// <summary>
+		/// 
+		/// </summary>
+		/// <param name="completedSynchronously"></param>
+		/// <returns></returns>
+		/// <seealso cref="SetCanceled(bool)"/>
+		public bool TrySetCompleted(bool completedSynchronously = false)
+		{
+			if (TrySetStatus(StatusCompletedFlag, completedSynchronously))
+			{
+				OnCompleted();
+				return true;
+			}
+
+			return false;
+		}
+
+		/// <summary>
+		/// 
+		/// </summary>
 		/// <param name="e"></param>
 		/// <param name="completedSynchronously"></param>
 		/// <seealso cref="TrySetException(Exception, bool)"/>
@@ -231,7 +391,7 @@ namespace UnityAppTools
 		{
 			if (!TrySetException(e, completedSynchronously))
 			{
-				throw new InvalidOperationException(_strOperationCompleted);
+				ThrowCompleted();
 			}
 		}
 
@@ -244,7 +404,7 @@ namespace UnityAppTools
 		/// <seealso cref="SetException(Exception, bool)"/>
 		public bool TrySetException(Exception e, bool completedSynchronously = false)
 		{
-			var status = e is OperationCanceledException ? _statusCanceledFlag : _statusFaultedFlag;
+			var status = e is OperationCanceledException ? StatusCanceledFlag : StatusFaultedFlag;
 
 			if (TrySetStatus(status, completedSynchronously))
 			{
@@ -265,7 +425,7 @@ namespace UnityAppTools
 		{
 			if (!TrySetCanceled(completedSynchronously))
 			{
-				throw new InvalidOperationException(_strOperationCompleted);
+				ThrowCompleted();
 			}
 		}
 
@@ -277,7 +437,7 @@ namespace UnityAppTools
 		/// <seealso cref="SetCanceled(bool)"/>
 		public bool TrySetCanceled(bool completedSynchronously = false)
 		{
-			if (TrySetStatus(_statusCanceledFlag, completedSynchronously))
+			if (TrySetStatus(StatusCanceledFlag, completedSynchronously))
 			{
 				OnCompleted();
 				return true;
@@ -304,7 +464,7 @@ namespace UnityAppTools
 		{
 			get
 			{
-				return _status < _statusFaultedFlag;
+				return (_status & _completedMask) == StatusCompletedFlag;
 			}
 		}
 
@@ -313,7 +473,7 @@ namespace UnityAppTools
 		{
 			get
 			{
-				return _status >= _statusFaultedFlag;
+				return _status >= StatusFaultedFlag;
 			}
 		}
 
@@ -322,7 +482,7 @@ namespace UnityAppTools
 		{
 			get
 			{
-				return (_status & _statusCanceledFlag) != 0;
+				return (_status & StatusCanceledFlag) != 0;
 			}
 		}
 
@@ -354,7 +514,7 @@ namespace UnityAppTools
 		{
 			get
 			{
-				return (_status & _statusSynchronousFlag) != 0;
+				return (_status & StatusSynchronousFlag) != 0;
 			}
 		}
 
@@ -363,8 +523,49 @@ namespace UnityAppTools
 		{
 			get
 			{
-				return _status > _statusRunning;
+				return _status > StatusRunning;
 			}
+		}
+
+		#endregion
+
+		#region IEnumerator
+
+		/// <inheritdoc/>
+		public object Current
+		{
+			get
+			{
+				return null;
+			}
+		}
+
+		/// <inheritdoc/>
+		public bool MoveNext()
+		{
+			if (IsCompleted)
+			{
+				return false;
+			}
+			else
+			{
+				try
+				{
+					OnUpdate();
+				}
+				catch (Exception e)
+				{
+					TrySetException(e);
+				}
+
+				return !IsCompleted;
+			}
+		}
+
+		/// <inheritdoc/>
+		public void Reset()
+		{
+			throw new NotSupportedException();
 		}
 
 		#endregion
@@ -374,7 +575,7 @@ namespace UnityAppTools
 		/// <inheritdoc/>
 		public void Dispose()
 		{
-			if (_status == _statusRunning)
+			if (_status == StatusRunning)
 			{
 				throw new InvalidOperationException("Cannot dispose non-completed operation.");
 			}
@@ -418,7 +619,7 @@ namespace UnityAppTools
 				result += ", State = ";
 				result += state;
 
-				if ((status & _statusDisposedFlag) != 0)
+				if ((status & StatusDisposedFlag) != 0)
 				{
 					result += ", Disposed";
 				}

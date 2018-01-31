@@ -19,7 +19,7 @@ namespace UnityAppTools
 	{
 		#region data
 
-		private sealed class InvokeResult : AsyncResult<object>
+		private sealed class InvokeResult : AsyncResult
 		{
 			public InvokeResult(AsyncCallback asyncCallback, object asyncState)
 				: base(asyncCallback, asyncState)
@@ -151,7 +151,7 @@ namespace UnityAppTools
 							try
 							{
 								data.Action.Invoke(asyncResult.AsyncState);
-								asyncResult.SetResult(null);
+								asyncResult.SetCompleted();
 							}
 							catch (Exception e)
 							{

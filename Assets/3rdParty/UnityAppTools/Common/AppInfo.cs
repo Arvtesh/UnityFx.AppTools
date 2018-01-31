@@ -162,7 +162,7 @@ namespace UnityAppTools
 #endif
 			}
 
-			return new AsyncResult<AppInfo>(_instance, true, asyncCallback, asyncState);
+			return AsyncResult.FromResult(_instance, asyncCallback, asyncState);
 		}
 
 #if NET_4_6
@@ -197,7 +197,7 @@ namespace UnityAppTools
 							cs.TrySetException(op.Exception);
 						}
 					},
-					tsc);
+					tcs);
 
 				return tcs.Task;
 			}
