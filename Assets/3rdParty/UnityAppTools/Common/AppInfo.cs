@@ -2,10 +2,8 @@
 // Licensed under the MIT license. See the LICENSE.md file in the project root for more information.
 
 using System;
-#if NET_4_6
-using System.Threading.Tasks;
-#endif
 using UnityEngine;
+using UnityFx.Async;
 
 namespace UnityAppTools
 {
@@ -89,19 +87,9 @@ namespace UnityAppTools
 		/// <summary>
 		/// Initiates the app info initialization.
 		/// </summary>
-		/// <seealso cref="InitializeAsync(AsyncCallback, object)"/>
-		/// <seealso cref="Initialize"/>
-		public static IAsyncOperation<AppInfo> InitializeAsync()
-		{
-			return InitializeAsync(null, null);
-		}
-
-		/// <summary>
-		/// Initiates the app info initialization.
-		/// </summary>
 		/// <seealso cref="InitializeAsync"/>
 		/// <seealso cref="Initialize"/>
-		public static IAsyncOperation<AppInfo> InitializeAsync(AsyncCallback asyncCallback, object asyncState)
+		public static IAsyncOperation<AppInfo> InitializeAsync(object asyncState)
 		{
 			if (_instance == null)
 			{
@@ -121,7 +109,7 @@ namespace UnityAppTools
 
 #else
 
-				var asyncResult = new AsyncResult<AppInfo>(asyncCallback, asyncState);
+				var asyncResult = new AsyncCompletionSource<AppInfo>(AsyncOperationStatus.Running, asyncState);
 
 				if (!Application.RequestAdvertisingIdentifierAsync((advertisingId, trackingEnabled, errorMsg) =>
 				{
@@ -154,7 +142,7 @@ namespace UnityAppTools
 					result.DeviceId = GetDeviceId(null, result.VendorId);
 					result.IsFirstLaunch = GetSetFirstLaunch();
 
-					asyncResult.SetResult(result, true);
+					asyncResult.SetResult(result);
 					_instance = result;
 				}
 
@@ -162,50 +150,8 @@ namespace UnityAppTools
 #endif
 			}
 
-			return AsyncResult.FromResult(_instance, asyncCallback, asyncState);
+			return AsyncResult.FromResult(_instance, asyncState);
 		}
-
-#if NET_4_6
-
-		/// <summary>
-		/// Initiates the app info initialization.
-		/// </summary>
-		/// <seealso cref="InitializeAsync"/>
-		/// <seealso cref="Initialize"/>
-		public static Task<AppInfo> InitializeTaskAsync()
-		{
-			if (_instance == null)
-			{
-				var tcs = new TaskCompletionSource<AppInfo>();
-
-				InitializeAsync(
-					asyncResult =>
-					{
-						var op = asyncResult as AsyncResult<AppInfo>;
-						var cs = op.AsyncState as TaskCompletionSource<AppInfo>;
-
-						if (op.IsCompletedSuccessfully)
-						{
-							cs.TrySetResult(op.Result);
-						}
-						else if (op.IsCanceled)
-						{
-							cs.TrySetCanceled();
-						}
-						else
-						{
-							cs.TrySetException(op.Exception);
-						}
-					},
-					tcs);
-
-				return tcs.Task;
-			}
-
-			return Task.FromResult(_instance);
-		}
-
-#endif
 
 		#endregion
 

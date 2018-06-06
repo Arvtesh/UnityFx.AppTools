@@ -4,33 +4,27 @@
 using System;
 using System.Threading;
 
-namespace UnityAppTools
+namespace UnityFx.Async
 {
 	/// <summary>
-	/// Implementation of <see cref="SynchronizationContext"/> for Unity. This class is a helper for <see cref="MainThreadScheduler"/>;
+	/// Implementation of <see cref="SynchronizationContext"/> for Unity. The class is a helper for <see cref="MainThreadScheduler"/>;
 	/// do not use unless absolutely nessesary.
 	/// </summary>
-	/// <seealso cref="IAsyncScheduler"/>
-	public sealed class UnitySynchronizationContext : SynchronizationContext
+	public class MainThreadSynchronizationContext : SynchronizationContext
 	{
 		#region data
 
-		private IAsyncScheduler _scheduler;
+		private readonly MainThreadScheduler _scheduler;
 
 		#endregion
 
 		#region interface
 
 		/// <summary>
-		/// Initializes a new instance of the <see cref="AsyncResult"/> class.
+		/// Initializes a new instance of the <see cref="MainThreadSynchronizationContext"/> class.
 		/// </summary>
-		public UnitySynchronizationContext(IAsyncScheduler scheduler)
+		public MainThreadSynchronizationContext(MainThreadScheduler scheduler)
 		{
-			if (scheduler == null)
-			{
-				throw new ArgumentNullException("scheduler");
-			}
-
 			_scheduler = scheduler;
 		}
 
@@ -41,7 +35,7 @@ namespace UnityAppTools
 		/// <inheritdoc/>
 		public override SynchronizationContext CreateCopy()
 		{
-			return new UnitySynchronizationContext(_scheduler);
+			return new MainThreadSynchronizationContext(_scheduler);
 		}
 
 		/// <inheritdoc/>
@@ -56,9 +50,6 @@ namespace UnityAppTools
 			_scheduler.Post(d, state);
 		}
 
-		#endregion
-
-		#region implementation
 		#endregion
 	}
 }
