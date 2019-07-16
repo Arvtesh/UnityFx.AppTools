@@ -2,44 +2,42 @@
 // Licensed under the MIT license. See the LICENSE.md file in the project root for more information.
 
 using System;
+using System.Threading.Tasks;
 using UnityEngine;
-using UnityFx.Async;
 
-namespace UnityAppTools
+namespace UnityFx.AppTools
 {
 	/// <summary>
 	/// Provides app-related utilities (app identifiers, first launch flag etc).
 	/// </summary>
-	public sealed class AppInfo
+	public sealed class DeviceInfo
 	{
 		#region data
 
-		public const string _keyPrefix = "AppInfo.";
+		public const string _keyPrefix = "DeviceInfo.";
 		public const string _keyDeviceId = _keyPrefix + "DeviceId";
 		public const string _keyFirstLaunch = _keyPrefix + "FirstLaunch";
-
-		private static AppInfo _instance;
 
 		#endregion
 
 		#region interface
 
 		/// <summary>
-		/// Returns unique device identifier for the application. Read only.
+		/// Returns unique device identifier.
 		/// </summary>
 		/// <seealso cref="VendorId"/>
 		/// <seealso cref="AdvertisingId"/>
 		public string DeviceId { get; private set; }
 
 		/// <summary>
-		/// Returns vendor identifier for the application. Read only.
+		/// Returns application vendor identifier.
 		/// </summary>
 		/// <seealso cref="AdvertisingId"/>
 		/// <seealso cref="DeviceId"/>
 		public string VendorId { get; private set; }
 
 		/// <summary>
-		/// Returns advertising identifier for the application. Read only.
+		/// Returns the application advertising identifier. Read only.
 		/// </summary>
 		/// <seealso cref="IsAdvertisingTrackingEnabled"/>
 		/// <seealso cref="VendorId"/>
@@ -58,42 +56,11 @@ namespace UnityAppTools
 		public bool IsFirstLaunch { get; private set; }
 
 		/// <summary>
-		/// Initializes the app info blocking calling thread until completed. Consider using non-blocking <see cref="InitializeAsync"/> instead.
-		/// </summary>
-		/// <seealso cref="InitializeAsync"/>
-		public static AppInfo Initialize()
-		{
-			if (_instance == null)
-			{
-				var result = new AppInfo();
-				var advertisingId = string.Empty;
-
-				if (TryGetAdvertisingId(out advertisingId))
-				{
-					result.AdvertisingId = advertisingId;
-					result.IsAdvertisingTrackingEnabled = true;
-				}
-
-				result.VendorId = GetVendorId();
-				result.DeviceId = GetDeviceId(result.AdvertisingId, result.VendorId);
-				result.IsFirstLaunch = GetSetFirstLaunch();
-
-				_instance = result;
-			}
-
-			return _instance;
-		}
-
-		/// <summary>
 		/// Initiates the app info initialization.
 		/// </summary>
-		/// <seealso cref="InitializeAsync"/>
-		/// <seealso cref="Initialize"/>
-		public static IAsyncOperation<AppInfo> InitializeAsync(object asyncState)
+		public static Task<DeviceInfo> CreateAsync()
 		{
-			if (_instance == null)
-			{
-				var result = new AppInfo();
+				var result = new DeviceInfo();
 
 #if UNITY_IOS && !UNITY_EDITOR
 
@@ -103,13 +70,11 @@ namespace UnityAppTools
 				result.DeviceId = GetDeviceId(result.AdvertisingId, result.VendorId);
 				result.IsFirstLaunch = GetSetFirstLaunch();
 
-				_instance = result;
-
-				return new AsyncResult<AppInfo>(result, true, asyncCallback, asyncState);
+				return Task.FromResult(result);
 
 #else
 
-				var asyncResult = new AsyncCompletionSource<AppInfo>(AsyncOperationStatus.Running, asyncState);
+				var tcs = new TaskCompletionSource<DeviceInfo>();
 
 				if (!Application.RequestAdvertisingIdentifierAsync((advertisingId, trackingEnabled, errorMsg) =>
 				{
@@ -124,17 +89,16 @@ namespace UnityAppTools
 							result.DeviceId = GetDeviceId(advertisingId, result.VendorId);
 							result.IsFirstLaunch = GetSetFirstLaunch();
 
-							asyncResult.SetResult(result);
-							_instance = result;
+							tcs.TrySetResult(result);
 						}
 						catch (Exception e)
 						{
-							asyncResult.TrySetException(e);
+							tcs.TrySetException(e);
 						}
 					}
 					else
 					{
-						asyncResult.TrySetException(new Exception(errorMsg));
+						tcs.TrySetException(new Exception(errorMsg));
 					}
 				}))
 				{
@@ -142,15 +106,12 @@ namespace UnityAppTools
 					result.DeviceId = GetDeviceId(null, result.VendorId);
 					result.IsFirstLaunch = GetSetFirstLaunch();
 
-					asyncResult.SetResult(result);
-					_instance = result;
+					tcs.TrySetResult(result);
 				}
 
-				return asyncResult;
-#endif
-			}
+				return tcs.Task;
 
-			return AsyncResult.FromResult(_instance, asyncState);
+#endif
 		}
 
 		#endregion

@@ -1,0 +1,27 @@
+{
+    "name": "com.unityfx.apptools",
+    "version": "0.1.0",
+    "displayName": "Application tools for Unity",
+    "description": "Provides a set of helpers for Unity. Requires .NET 4.6 or higher.",
+    "unity": "2017.3",
+    "keywords": [
+        "UnityFx",
+        "UnityFx.AppTools",
+        "tools",
+        "utility"
+    ],
+    "category": "UnityFx",
+    "author": {
+        "name": "Arvtesh",
+        "email": "arvtesh@gmail.com"
+    },
+    "license": "MIT",
+    "homepage": "https://github.com/Arvtesh/UnityFx.AppTools",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/Arvtesh/UnityFx.AppTools.git"
+    },
+    "bugs": {
+        "url": "https://github.com/Arvtesh/UnityFx.AppTools/issues"
+    }
+}
